@@ -1,0 +1,1404 @@
+---
+title: "Assignment_04_titanic"
+output: html_document
+---
+
+Dependencies
+```{r}
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(rpart)
+library(kableExtra)
+library(tidyverse)
+library(caret)
+library(expss)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(tidyr)
+library(randomForest)
+library(plyr)
+library(doSNOW)
+```
+
+load data-sets
+```{r}
+#titanic <- read.csv("./dataset/titanic3.csv", header = TRUE)
+train <- read.csv("./dataset/titanic_train.csv", header = TRUE)
+test <- read.csv("./dataset/titanic_test.csv", header = TRUE)
+```
+
+explore train and test
+```{r}
+#str(titanic)
+str(train)
+str(test)
+```
+train dataframe has 891 observations with 12 columns
+test dataframe has 418 observations with 11 columns (less observations and columns compared to train dataframe)
+
+let's look at the attributes
+
+"survived" attribute is defining the survival of the passenger with "0" being dead and "1" being alive.
+
+"pclass" attribute in this dataset determines the ticket class being 1st upper class, 2nd middle class and 3rd lower class
+
+"name" and "sex" attributes are obvious, the name field displays the name of the person.
+
+"age" attribute displays the age of the passenger in the form xx.xx in years
+
+"sibsp" attribute defines siblings or spouses, wherein siblings could be brother, sister, step-brother, step-sister and spouse is husband, wife.
+
+"parch" attribute defines parents or children, wherein parents include father, mother and child is daughter, son, step-daughter, step-son. Children with travelling without parents had parch=0.
+
+"ticket" attribute displayed the ticket number
+
+"fare" attribute determines the fare of the passenger
+
+"cabin" attribute is the cabin number.
+
+"embarked" attribute displays port of embarkation "C", "S", "Q"
+
+Attribute types: 
+
+Categorical attributes - survived, sex, embarked, pclass
+Numerical attributes - age, fare, sibsp, parch
+
+
+```{r}
+#Add a "Survived" attribute to the test dataset 
+test$Survived <- NA
+
+#Bind test and train data to create new variables in both sets
+data <- rbind(train, test)
+
+# check out data with a summary
+summary(data)
+```
+
+PassengerId
+```{r}
+length(data$PassengerId)
+length(unique(data$PassengerId))
+```
+There are no missing values and duplication.
+
+Survived
+```{r}
+data$Survived <- as.factor(data$Survived)
+table(data$Survived, dnn = "Number of Survived in the Data")
+```
+
+```{r}
+# Calculate the survive rate in train data is 38% and the death rate is 62%
+prop.table(table(as.factor(train$Survived), dnn = "Survive and death ratio in the Train"))
+```
+
+The survive rate in the train dataset is 61.62%.
+
+Pclass
+```{r}
+data$Pclass <- as.factor(data$Pclass)
+
+# Distribution across classes into a table
+table(data$Pclass, dnn = "Pclass values in the Data")
+```
+
+
+```{r}
+# Distribution across classes with survive
+table(data$Pclass, data$Survived)
+```
+
+```{r}
+# Calculate the distribution on Pclass
+prop.table(table(as.factor(data$Pclass), dnn = "Pclass percentage in the Data"))
+```
+That is 24.67% passenger in Class-1, 21.16% passenger is class-2 and 54.16% of passenger in class-3.
+
+```{r}
+# Train data passenger distribution on classes.
+prop.table(table(as.factor(train$Pclass),dnn = "Pclass percentage in the Train"))
+```
+The distribution of passengers from dataset train is: class-1, 24.24%; class-2, 20.65% and class-3 has 55.1%.
+
+```{r}
+# Test data passenger distribution on classes.
+prop.table(table(as.factor(test$Pclass), dnn = "Pclass percentage in the Test"))
+```
+the passenger distribution from test dataset are: 25.6% in class-1, 22.24% in class-2 and 52.15% percent in class-3.
+
+The final observation is that the most passenger are in class-3, then class-1 and finally class-2.
+
+let's look into death and survive distribution among the three classes.
+```{r}
+# Calculate death distribution across classes with Train data
+SurviveOverClass <- table(train$Pclass, train$Survived)
+
+# Convert SurviveOverClass into data frame
+SoC.data.fram <- data.frame(SurviveOverClass)
+
+# Retrieve death distribution in classes
+Death.distribution.on.class <- SoC.data.fram$Freq[SoC.data.fram$Var2==0]
+prop.table(Death.distribution.on.class)
+```
+the distribution of death among the three classes are: 14.57% death from class-1, 17.66% from class-2 and 67.75% death from class-3.
+
+```{r}
+# calculate survive distribution among the three classes
+Survive.distribution.on.class <- SoC.data.fram$Freq[SoC.data.fram$Var2==1]
+prop.table(Survive.distribution.on.class)
+```
+
+The results tell us that 39.76% of survived passenger are from class-1, and 25.43% from class-2, and 34.79% from class-3.
+
+Class-3 is responsible for 55.1 % of passenger distribution but just 34.79 % of passenger survival. Clearly, class-3 has a worse survival rate than the other two classes. It's the same as saying that a passenger in class-1 has a better probability of surviving than a passenger in class-2 or class-3.
+
+plot Survived on Pclass numbers
+```{r}
+ggplot(train, aes(x = Pclass, fill = factor(Survived))) +
+  geom_bar(width = 0.3) +
+  ggtitle("Total count and survive rate of passenger on Pcalss.") +
+  xlab("Pclass") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+
+```
+Graphical representation is easy to understand than the above descriptive analysis. Class-3 has the lowest survival rate, followed by class-2 and then class-1. To summarise the Pclass analysis, we employed both Descriptive and Exploratory analytic approaches.  The findings indicated that the Pclass had a substantial link to mortality rates. As a result, passengers in Class-3 have a greater risk of dying. If the class-3 ticket is less expensive than others, the correlation with social class (richer or poorer) must be proven.
+
+```{r}
+# Calculate death distribution over Pclass with Train data
+# create Pclass and Survived contingency table
+SurviveOverPclassTable <- table(train$Pclass, train$Survived)
+# Death-0/survived-1 value distribution (percentage) based on classes
+# prop.table(mytable, 2) give us column (Survived) percentages
+Deathandsurvivepercentage <- prop.table(SurviveOverPclassTable, 2)
+# Plot
+M <- c("1-upper", "2-middle", "3-lower")
+barplot(Deathandsurvivepercentage[1:3,1]*100, xlab =(""), ylim=c(0,100), ylab="Death distribution in percentage %",  names.arg = M, col="steelblue", main="Death distribution", border="black", beside=TRUE)
+barplot(Deathandsurvivepercentage[1:3,2]*100, xlab =(""), ylim=c(0,100), ylab="Servive distribution in percentage %",  names.arg = M, col="blue", main="Servive distribution", border="black", beside=TRUE)
+
+## Calculate survived RATE distribution based on classes
+# Death-0/survived-1 value distribution (percentage) based on classes
+# prop.table(mytable, 1) give us row percentages
+# col-1 (Survived=0, perished) and col-2 (Survived =1, survived)
+DeathandsurviveRateforeachport <- prop.table(SurviveOverPclassTable, 1)
+#plot
+barplot(Deathandsurvivepercentage[1:3,1]*100, xlab =(""), ylim=c(0,100), ylab="Death rate in percentage %",  names.arg = M, col="red", main="Death rate comparison among pclass", border="black", beside=TRUE)
+```
+
+Name
+According to me, the name doesn't have any impact if a passenger will survive.
+```{r}
+# Convert Name type from factor to chr
+data$Name <- as.character(data$Name)
+
+# Find the two duplicate names. First used which function to # get the duplicate names and store them in a vector dup.names 
+# check it up ?which.
+dup.names <- data[which(duplicated(data$Name)), "Name"]
+
+# Echo out 
+dup.names
+```
+
+Sex
+```{r}
+summary(as.factor(data$Sex))
+```
+no error and missing values
+
+```{r}
+# plot Survived over Sex on dataset train
+ggplot(data[1:891,], aes(x = Sex, fill = Survived)) +
+  geom_bar(width = 0.3) +
+  ggtitle("Total count and survive rate of passenger on sex.") +
+  xlab("Sex") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+```
+
+It is observed that the male passenger death rate is substantially greater than the female passenger death rate.
+
+Age
+```{r}
+# Examine Age over data, train and test.
+summary(data$Age)
+
+summary(train$Age)
+
+summary(test$Age)
+```
+
+```{r}
+summary(as.factor(data$Age))
+```
+Age value is displayed in fraction, the missing values is larger 177 in train dataset, 86 in test dataset and total of 236 values which sums up to 20% of total. 
+survival rate impacted due to age.
+```{r}
+# plot distribution of age group
+ggplot(data, aes(x = Age)) +
+  geom_histogram(binwidth = 10, fill="steelblue") +
+  xlab("Age") +
+  ylab("Total Count")
+
+# plot Survived on age group using train dataset
+ggplot(data[1:891,], aes(x = Age, fill = Survived)) +
+  geom_histogram(binwidth = 10) +
+  ggtitle("Age ditribution and its survive rate.") +
+  xlab("Age") +
+  ylab("Total Count")
+  
+```
+
+The graph depicts the link between age and the rate of survival. It is evident that the age range of 5 to 25 has the lowest survival rate. 
+
+SibSp
+```{r}
+summary((data$SibSp))
+length(unique(data$SibSp))
+```
+
+```{r}
+#check the totak number
+length(data$SibSp)
+```
+
+```{r}
+data$SibSp <- as.factor(data$SibSp)
+summary(data$SibSp)
+```
+
+891 travellers with no siblings or spouses.
+
+survival rate impacted due to sibsp
+```{r}
+# plot entire SibSp distribution among the 7 values
+ggplot(data, aes(x = SibSp)) +
+  geom_bar(width = 0.5) +
+  xlab("SibSp") +
+  ylab("Total Count")+
+  coord_cartesian()
+
+# Plot on the survive on SibSp
+ggplot(data[1:891,], aes(x = SibSp, fill = Survived)) +
+  geom_bar(width = 0.5) +
+  ggtitle("Plot SibSp distribution among the 7 values and its survive rate.") +
+  xlab("SibSp") +
+  ylab("Total Count")  +
+  labs(fill = "Survived")
+```
+
+Parch
+```{r}
+summary((data$Parch))
+length(unique(data$Parch))
+```
+
+```{r}
+#check the total number
+length(data$Parch)
+```
+
+```{r}
+data$Parch <- as.factor(data$Parch)
+summary(data$Parch)
+```
+It indicates that 1002 passengers are travelling alone, without the company of their parents or children.The maximum number is 9. In terms of the amount of passengers a passenger can have, there are a total of 8 variations.
+
+survival rate impacted due to parch
+```{r}
+# plot entire Parch distribution among the 8 values
+ggplot(data, aes(x = Parch)) +
+  geom_bar(width = 0.5) +
+  xlab("Parch") +
+  ylab("Total Count")+
+  coord_cartesian()
+
+# Plot on the survive on Parch
+ggplot(data[1:891,], aes(x = Parch, fill = Survived)) +
+  geom_bar(width = 0.5) +
+  ggtitle("Plot Parch distribution among the 8 values and its survive rate.") +
+  xlab("Parch") +
+  ylab("Total Count")  +
+  labs(fill = "Survived")
+```
+
+Ticket
+```{r}
+head(summary(as.factor(data$Ticket)),30) 
+```
+
+```{r}
+str(data$Ticket)
+```
+
+```{r}
+#missing values
+which(is.na(data$Ticket))
+```
+
+there are 929 different numbers, and no missing value. 
+
+```{r}
+#plot ticket values 
+ggplot(data[1:891,], aes(x = Ticket)) +
+  geom_bar() +
+  ggtitle("Plot of Ticket value distribution.") +
+  xlab("Ticket") +
+  ylab("Total Count")
+```
+
+```{r}
+# Plot on the survive on Ticket
+ggplot(data[1:891,], aes(x = Ticket, fill = Survived)) +
+  geom_bar() +
+  ggtitle("Plot of Ticket survival rate.") +
+  xlab("Ticket Number") +
+  ylab("Total Count")  +
+  labs(fill = "Survived")
+```
+
+Fare
+```{r}
+summary(data$Fare)
+length(unique(data$Fare))
+```
+one missing value.
+there are 282 different prices.
+
+```{r}
+#plot fare values
+ggplot(data, aes(x = Fare)) +
+  geom_histogram(binwidth = 5) +
+  ggtitle("Fare Distribution") +
+  xlab("Fare") +
+  ylab("Total Count") +
+  ylim(0,200)
+
+# plot fare relation with survive
+ggplot(data[1:891,], aes(x = Fare, fill = Survived)) +
+  geom_histogram(binwidth = 5) +
+  ggtitle("Plot of Fare distribution and survival rate.") +
+  xlab("Fare") +
+  ylab("Total Count") +
+  ylim(0,50) + 
+  labs(fill = "Survived")
+```
+
+Cabin
+```{r}
+str(data$Cabin)
+summary(as.factor(data$Cabin))
+```
+
+```{r}
+# Find out number of the missing value in the train
+train$Cabin <- as.character(train$Cabin)
+
+# number of the missing value in the train
+length(train[which(train$Cabin ==""), "Cabin"])
+```
+
+```{r}
+# percentage of the missing value in the train
+length(train[which(train$Cabin ==""), "Cabin"])/length(train$Cabin)*100
+```
+
+```{r}
+data$cabinfirstchar<- as.factor(substr(data$Cabin, 1, 1))
+
+# first cabin letter survival plot
+ggplot(data[1:891,], aes(x = cabinfirstchar, fill = Survived)) +
+  geom_bar() +
+  ggtitle(" Plot of the passenger number and the survived number based on the first letter of their cabin number.") +
+  xlab("First Cabin Letter") +
+  ylab("Total Count") +
+  ylim(0,750) +
+  labs(fill = "Survived")
+```
+To summarise, the Cabin property has a significant number of missing values (1014). There are 687 missing values in the dataset train, accounting for 71% of the total value. Except its missing value, Cabin has 186 different values.
+
+Embarked
+```{r}
+summary(as.factor(data$Embarked))
+```
+
+```{r}
+length(data$Embarked)
+```
+
+Two missing values and three ports are confirmed by the findings. The first departure port, Southampton, has the most passengers.
+
+```{r}
+# Plot data distribution and the survival rate for analysis
+ggplot(data, aes(x = Embarked)) +
+  geom_bar(width=0.5) +
+  xlab("Passenger embarked port") +
+  ylab("Total Count") 
+
+
+ggplot(data[1:891,], aes(x = Embarked, fill = Survived)) +
+  geom_bar(width=0.5) +
+  ggtitle("Plot of Embarked distribution and survival rate.") +
+  xlab("Embarked port") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+```
+
+According to the graph, over 70% of passengers embarked from Southampton (914/1309 = 0.698). The remaining of the passengers embarked from Queenstown, which accounts for nearly 10% of the total (270/1309 = 0.206).
+
+```{r}
+# Calculate death distribution over Embarked port with Train data
+# create Embarked and Survived contingency table
+SurviveOverEmbarkedTable <- table(train$Embarked, train$Survived)
+# Death-0/survived-1 value distribution (percentage) based on embarked ports
+# prop.table(mytable, 2) give us column (Survived) percentages
+Deathandsurvivepercentage <- prop.table(SurviveOverEmbarkedTable, 2)
+# Plot
+M <- c("c-Cherbourg", "Q-Queenstown", "S-Southampton")
+barplot(Deathandsurvivepercentage[2:4,1]*100, xlab =(""), ylim=c(0,100), ylab="Death distribution in percentage %",  names.arg = M, col="steelblue", main="Death distribution", border="black", beside=TRUE)
+barplot(Deathandsurvivepercentage[2:4,2]*100, xlab =(""), ylim=c(0,100), ylab="Servive distribution in percentage %",  names.arg = M, col="blue", main="Servive distribution", border="black", beside=TRUE)
+
+## Calculate survived RATE distribution based on embarked ports
+# Death-0/survived-1 value distribution (percentage) based on embarked ports
+# prop.table(mytable, 1) give us row (Port) percentages
+# col-1 (Survived=0, perished) and col-2 (Survived =1, survived)
+DeathandsurviveRateforeachport <- prop.table(SurviveOverEmbarkedTable, 1)
+#plot
+barplot(Deathandsurvivepercentage[2:4,1]*100, xlab =(""), ylim=c(0,100), ylab="Death rate in percentage %",  names.arg = M, col="red", main="Death rate comparison among embarked ports", border="black", beside=TRUE)
+```
+
+
+Dealing with missing values:
+```{r}
+# function to check missing values
+missing_vars <- function(x) {
+  var <- 0
+  missing <- 0
+  missing_prop <- 0
+  for (i in 1:length(names(x))) {
+    var[i] <- names(x)[i]
+    missing[i] <- sum(is.na(x[, i])|x[, i] =="" )
+    missing_prop[i] <- missing[i] / nrow(x)
+  }
+# order   
+missing_data <- data.frame(var = var, missing = missing, missing_prop = missing_prop) %>% 
+arrange(desc(missing_prop))
+# print out
+missing_data
+}
+```
+
+```{r}
+missing_vars(data)
+```
+The test dataset number for Survived is 418 missing values. Cabin and Age have a high percentage of missing variables, although Embarked and Fare only have 2 and 1 missing values, respectively.
+
+1) Cabin
+```{r}
+# missing values in Cabin
+data$HasCabinNum <- ifelse((data$Cabin != ""), "Yes", "No")
+```
+
+```{r}
+# Make sure survived is in factor type 
+p1 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(HasCabinNum), fill = factor(Survived))) +
+   geom_bar(width = 0.5) +
+   xlab("HasCabinNum") +
+   ylab("Total Count") +
+   labs(fill = "Survived")+
+   ggtitle("Newly created HasCabinNum attribute on Survived")
+
+# show survive percentage on HasCabinNum 
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(HasCabinNum), fill = factor(Survived))) + 
+  geom_bar(position = "fill", width = 0.5) + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "HasCabinNum", y = "Percentage of Survived") + 
+  ggtitle("Newly created HasCabinNum attribute (Proportion Survived)")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+2)Age
+```{r}
+# replace missing value in Age with its average
+ageEverage <- summarise(data, Average = mean(Age, na.rm = TRUE))
+
+# create a new attribute Age_RE1 and assign it with new values
+data$Age_RE1 <- ifelse(is.na(data$Age), as.numeric(ageEverage), as.numeric(data$Age))
+
+# plot age attribute 
+p1 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Age_RE1), fill = factor(Survived))) +
+   geom_bar(width = 0.5) +
+   xlab("Age_RE1") +
+   ylab("Total Count") +
+   labs(fill = "Survived")+
+   ggtitle("Survived value on Age_RE1")
+
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Age_RE1), fill = factor(Survived))) + 
+  geom_bar(position = "fill", width = 0.5) + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Age_RE1", y = "Percentage of Survived") + 
+  ggtitle("Survived percentage on Age_RE1")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+```{r}
+# calculate the non-NA mean and std
+mean <- mean(data[["Age"]], na.rm = TRUE) # take train mean
+std <- sd(data[["Age"]], na.rm = TRUE) # take test std
+
+# replace NA with a list that maintian the mean and std
+temp_rnum <- rnorm(sum(is.na(data$Age)), mean=mean, sd=std)
+
+# add new attribute Age_RE2
+data$Age_RE2 <- ifelse(is.na(data$Age), as.numeric(temp_rnum), as.numeric(data$Age))
+summary(data$Age_RE2)
+```
+
+```{r}
+# replace negative values with positive values
+data$Age_RE2[(data$Age_RE2)<=0] <- sample(data$Age[data$Age>0], length(data$Age_RE2[(data$Age_RE2)<=0]), replace=F)
+
+# check
+summary(data$Age_RE2)
+```
+
+```{r}
+# plot age attribute 
+p1 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Age_RE2), fill = factor(Survived))) +
+   geom_bar(width = 0.5) +
+   xlab("Age_RE2") +
+   ylab("Total Count") +
+   labs(fill = "Survived")+
+   ggtitle("Survived value on Age_RE2 attribute")
+
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Age_RE2), fill = factor(Survived))) + 
+  geom_bar(position = "fill", width = 0.5) + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Age_RE2", y = "Percentage of Survived") + 
+  ggtitle("Survived percentage on Age_RE2 attribute")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+```{r}
+# Age missing values
+data$Age_RE3 <- data$Age
+summary(data$Age_RE3)
+```
+
+```{r}
+# Construct a decision tree with selected attributes and ANOVA method
+Agefit <- rpart(Age_RE3 ~ Survived + Pclass + Sex + SibSp + Parch + Fare + Embarked,
+                  data=data[!is.na(data$Age_RE3),], 
+                  method="anova")
+
+#Fill AGE missing values with prediction made by decision tree prediction
+data$Age_RE3[is.na(data$Age_RE3)] <- predict(Agefit, data[is.na(data$Age_RE3),])
+
+#confirm the missing values have been filled
+summary(data$Age_RE3)
+```
+
+```{r}
+p1 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Age_RE3), fill = factor(Survived))) +
+   geom_bar(width = 0.5) +
+   xlab("Age_RE3") +
+   ylab("Total Count") +
+   labs(fill = "Survived")+
+   ggtitle("Survived value on Age_RE3 attribute")
+
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Age_RE3), fill = factor(Survived))) + 
+  geom_bar(position = "fill", width = 0.5) + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Age_RE3", y = "Percentage of Survived") + 
+  ggtitle("Survived percentage on Age_RE3 attribute")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+```{r}
+data$Age <- data$Age_RE3
+data <- subset(data, select = -c(Age_RE1, Age_RE2, Age_RE3))
+```
+
+3)Fare
+```{r}
+# Replacing na with the median value
+data[is.na(data$Fare), ]
+```
+
+```{r}
+data$Fare[is.na(data$Fare)] <- median(data$Fare, na.rm = T)
+```
+
+4) Embarked
+```{r}
+data[(data$Embarked==""), c("Embarked", "PassengerId",  "Fare", "Ticket")]
+```
+
+```{r}
+data[(data$Ticket=="113572"), c("Ticket", "PassengerId", "Embarked", "Fare")]
+```
+
+```{r}
+# calculate fare_PP per person
+fare_pp <- data %>%
+  group_by(Ticket, Fare) %>%
+  dplyr::summarize(Friend_size = n()) %>%
+  mutate(Fare_pp = Fare / Friend_size)
+```
+
+```{r}
+data <- left_join(data, fare_pp, by = c("Ticket", "Fare"))
+data %>%
+  filter((Embarked != "")) %>%
+ggplot(aes(x = Embarked, y = Fare_pp)) + 
+  geom_boxplot() + 
+  geom_hline(yintercept = 40, col = "deepskyblue4")
+```
+
+```{r}
+data$Embarked[(data$Embarked)==""] <- "C"
+```
+
+```{r}
+missing_vars(data)
+```
+The four attributes missing values are dealt.
+
+Name
+```{r}
+# Separate Title out
+ data$Title <- gsub('(.*, )|(\\..*)', '', data$Name)
+ data %>%
+   group_by(Title) %>%
+   dplyr::count() %>%
+ arrange(desc(n))
+```
+There are a total of 18 titles available.
+
+```{r}
+# Group those less common title’s into an ‘Other’ category.
+data$Title <- ifelse(data$Title %in% c("Mr", "Miss", "Mrs", "Master"), data$Title, "Other")
+
+L<- table(data$Title, data$Sex)
+knitr::kable(L, digits = 2, booktabs = TRUE, caption = "Title and sex confirmation")
+```
+
+```{r}
+data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Title), fill = factor(Survived))) + 
+  geom_bar(position = "fill") + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Title", y = "Survival Percentage") + 
+  ggtitle("Title attribute (Proportion Survived)")
+```
+
+Cabin (Deck)
+```{r}
+data$Cabin <- as.character(data$Cabin)
+data$Deck <- ifelse((data$Cabin == ""), "U", substr(data$Cabin, 1, 1))
+# plot our newly created attribute relation with Survive
+p1 <- ggplot(data[1:891,], aes(x = Deck, fill = factor(Survived))) +
+  geom_bar(width = 0.5) +
+  labs(x = "Deck number", y = "Total account") + 
+  labs(fill = "Survived")
+
+# plot percentage of survive
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Deck), fill = factor(Survived))) + 
+  geom_bar(position = "fill") + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Deck number", y = "Percentage") + 
+  ggtitle("Newly created Deck number (Proportion Survived)")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+Ticket (ticket class)
+```{r}
+data$Ticket <- as.character(data$Ticket)
+data$Ticket_class <- ifelse((data$Ticket != " "), substr(data$Ticket, 1, 1), "")
+data$Ticket_class <- as.factor(data$Ticket_class)
+
+# plot our newly created attribute relation with Survive
+p1 <- data %>%
+  filter(!is.na(Survived)) %>%
+  ggplot(aes(x = Ticket_class, fill = factor(Survived))) +
+  geom_bar(width = 0.5) +
+  labs(x = "Ticket_class", y = "Total account") + 
+  labs(fill = "Survived value over Ticket class")
+
+# plot percentage of survive
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Ticket_class), fill = factor(Survived))) + 
+  geom_bar(position = "fill") + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Ticket_class", y = "Percentage") + 
+  ggtitle("Survived percentage over Newly created Ticket_class")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+
+age in groups
+```{r}
+Age_labels <- c('0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79')
+
+data$Age_group <- cut(data$Age, c(0, 10, 20, 30, 40, 50, 60, 70, 80), include.highest=TRUE, labels= Age_labels)
+
+p1 <- data %>%
+  filter(!is.na(Survived)) %>%
+    ggplot(aes(x = Age_group, y = ..count.., fill = factor(Survived))) +
+  geom_bar() +
+  ggtitle("Survived value ove newly created Age_group")
+
+# plot percentage of survive
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = Age_group, fill = factor(Survived))) + 
+  geom_bar(position = "fill") + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Age group", y = "Percentage") + 
+  ggtitle("Survived percentage ove newly created Age_group")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+fare per passenger (contd.)
+```{r}
+data$Fare_pp <- data$Fare/data$Friend_size
+```
+
+```{r}
+# plot Fare_PP against Survived
+p1<- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = Fare_pp, fill = factor(Survived))) + 
+ geom_histogram(binwidth = 2) +
+  scale_y_continuous(breaks = seq(0, 500, 50)) + 
+  scale_fill_discrete(name = "Survived") + 
+  labs(x = "Fare (per person)", y = "Count") + 
+  ggtitle("Survived value over Fare_pp")
+p1
+```
+
+```{r}
+# plot percentage of survive
+p2 <- data %>%
+  filter(!is.na(Survived)) %>%
+ggplot(aes(x = factor(Fare_pp), fill = factor(Survived))) + 
+  geom_bar(position = "fill") + 
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.1)) +
+  scale_fill_discrete(name = "Survived") +
+  labs(x = "Fare per person", y = "Percentage") + 
+  ggtitle("Survived rate over newly created Fare_PP")
+p2
+```
+
+```{r}
+# plot in box plot
+data %>%
+  filter(!is.na(Survived)) %>%
+  filter(Fare > 0) %>%
+ggplot(aes(factor(Survived), Fare_pp)) +
+  geom_boxplot(alpha = 0.2) +
+  scale_y_continuous(trans = "log2") +
+  geom_point(show.legend = FALSE) + 
+  geom_jitter()
+```
+
+```{r}
+## Build Re-engineered Dataset
+glimpse(data)
+
+# Remove abundant attributs
+RE_data <- subset(data, select = -c(Name, Cabin, Fare))
+
+# Write in file
+write.csv(RE_data, file = "RE_Data.CSV", row.names = FALSE)
+```
+
+Correlation Analysis
+
+```{r}
+#load re-engineered dataset
+RE_data <- read.csv("RE_data.csv", header = TRUE)
+```
+
+```{r}
+# check data
+glimpse(RE_data)
+summary(RE_data)
+```
+
+```{r}
+# convert non numeric types to numeric
+RE_data <- RE_data %>% mutate_if(is.factor, as.numeric)
+RE_data <- RE_data %>% mutate_if(is.character, as.numeric)
+```
+
+```{r}
+# plot correlation among numeric attributes
+cor <- RE_data %>% select(., -c(Ticket, PassengerId)) %>%
+  cor(use="pairwise.complete.obs") %>%
+  corrplot::corrplot.mixed(upper = "circle", tl.col = "black")
+```
+
+```{r}
+RE_data <- read.csv("./RE_data.csv", header = TRUE)
+train <- RE_data[1:891, ]
+test <- RE_data[892:1309, ]
+```
+
+```{r}
+#build a decision tree model use rpart. 
+#set seed 
+set.seed(1234) 
+
+#build a decision tree model use rpart.
+model1 <- rpart(Survived ~ Sex, data = train, method="class")
+```
+
+```{r}
+options(digits=4)
+
+# assess the model's accuracy by make a prediction on the train data.
+Predict_model1_train <- predict(model1, train, type = "class")
+
+#build a confusion matrix to make comparison
+conMat <- confusionMatrix(as.factor(Predict_model1_train), as.factor(train$Survived))
+
+#show confusion matrix
+conMat$table
+
+#show percentage of same values - accuracy
+predict_train_accuracy <- conMat$overall["Accuracy"]
+predict_train_accuracy
+```
+
+```{r}
+# The firs prediction produced by the first decision tree which only used one predictor Sex
+Prediction1 <- predict(model1, test, type = "class")
+
+final1 <- data.frame(PassengerId = test$PassengerId, Survived = Prediction1)
+
+# Inspect prediction
+summary(final1$Survived)
+
+```
+```{r}
+prop.table(table(final1$Survived, dnn="Test survive percentage"))
+```
+
+```{r}
+prop.table(table(as.factor(train$Survived), dnn="Train survive percentage"))
+```
+
+The result reveals that out of 418 passengers in the test dataset, 266 passengers were expected to perish (with survived value 0), accounting for 64%, while 152 passengers were estimated to live (with survived value 1), accounting for 36%.
+
+.
+```{r}
+# add Sex back to the final and form a new data frame called compare
+compare <- data.frame(final1[1], Sex = test$Sex, final1[2])
+# Check train sex and Survived ratios
+prop.table(table(train$Sex, train$Survived, dnn = c("", "Gender and Survive Ratio in Train")),  margin = 1)
+```
+
+```{r}
+# Check predicted sex radio
+prop.table(table(compare$Sex, dnn="Gender ratio in Test"))
+```
+
+```{r}
+#check predicted Survive and Sex radio
+prop.table(table(compare$Sex, compare$Survived, dnn=c("","Gender and Survived Ratio in Prediction")), margin = 1)
+```
+
+```{r}
+prp(model1)
+fancyRpartPlot(model1)
+```
+
+```{r}
+# A tree model with the top five attributes 
+set.seed(1234)
+model2 <- rpart(Survived ~ Sex + Pclass + HasCabinNum + Deck + Fare_pp, data = train, method="class")
+
+# Assess model's accuracy with train data
+Predict_model2_train <- predict(model2, train, type = "class")
+conMat <- confusionMatrix(as.factor(Predict_model2_train), as.factor(train$Survived))
+conMat$table
+
+#conMat$overall
+predict2_train_accuracy <- conMat$overall["Accuracy"]
+predict2_train_accuracy
+```
+
+```{r}
+Prediction2 <- predict(model2, test, type = "class")
+final2 <- data.frame(PassengerId = test$PassengerId, Survived = Prediction2)
+```
+
+```{r}
+# plot our full house classifier 
+prp(model2, type = 0, extra = 1, under = TRUE)
+# plot our full house classifier 
+fancyRpartPlot(model2, caption = "")
+```
+
+```{r}
+# build a comparison data frame to record each prediction results
+Tree_compare <- data.frame(test$PassengerId, predict1=Prediction1, predict2=Prediction2)
+# Find differences
+dif <- Tree_compare[Tree_compare[2]!=Tree_compare[3], ]
+#show dif
+print.data.frame(dif, row.names = FALSE)
+```
+
+```{r}
+# tree model2 construction using more predictors
+model3 <- rpart(Survived ~ Sex + Fare_pp + Pclass + Title + Age_group + Ticket_class  + Embarked,
+              data=train,
+              method="class")
+# This model will be used in later chapters so save it in to a file for later to be loaded into memory
+save(model3, file = "model3.rda")
+#Assess prediction accuracy on train data
+Predict_model3_train <- predict(model3, train, type = "class")
+conMat <- confusionMatrix(as.factor(Predict_model3_train), as.factor(train$Survived))
+conMat$table
+```
+
+```{r}
+#conMat$overall
+predict3_train_accuracy <- conMat$overall["Accuracy"]
+predict3_train_accuracy
+```
+
+```{r}
+Prediction3 <- predict(model3, test, type = "class")
+final3<- data.frame(PassengerId = test$PassengerId, Survived = Prediction3)
+```
+
+```{r}
+# plot our full house classifier 
+prp(model3, type = 0, extra = 1, under = TRUE)
+# plot our full house classifier 
+fancyRpartPlot(model3)
+```
+
+```{r}
+# build a comparison data frame to record each prediction results
+compare <- data.frame(test$PassengerId, predict2 = Prediction2 , predict3 = Prediction3)
+# Find differences
+dif <- compare[compare[2] != compare[3], ]
+#show dif
+print.data.frame(dif, row.names = FALSE)
+```
+
+```{r}
+# The full-house classifier apart from name and ticket
+model4 <- rpart(Survived ~ Sex + Pclass + Age + SibSp + Parch + Embarked + HasCabinNum + Friend_size + Fare_pp + Title + Deck + Ticket_class + Age_group,
+#model4 <- rpart(Survived ~ .,
+              data=train,
+              method="class")
+#assess prediction accuracy on train data
+Predict_model4_train <- predict(model4, train, type = "class")
+conMat <- confusionMatrix(as.factor(Predict_model4_train), as.factor(train$Survived))
+conMat$table
+```
+
+```{r}
+#conMat$overall
+predict4_train_accuracy <- conMat$overall["Accuracy"]
+predict4_train_accuracy
+```
+
+```{r}
+# make prediction on test dataset
+Prediction4 <- predict(model4, test, type = "class")
+final4 <- data.frame(PassengerId = test$PassengerId, Survived = Prediction4)
+```
+
+```{r}
+# plot our full house classifier 
+prp(model4, type = 0, extra = 1, under = TRUE)
+fancyRpartPlot(model4)
+```
+The first test condition is "title = Mr," , the majority of the passengers are male adults, and that the majority of them perish. However, the decision tree (left branch) shows that "Ticket class" and "Deck" numbers are two more test criteria. Our tree had two living leaves and one dead leaf at the end. The most powerful predictors, Sex and Pclass, have been applied to the tree's leaf.
+
+
+```{r}
+# build a comparison data frame to record each prediction results
+compare <- data.frame(test$PassengerId, predict3 = Prediction3 , predict4 = Prediction4)
+# Find differences
+dif2 <- compare[compare[2] != compare[3], ]
+#show dif
+print.data.frame(dif2, row.names = FALSE)
+```
+
+Random Forest
+```{r}
+# convert variables into factor because RF can be Classification and Regression
+train$Survived <- as.factor(train$Survived)
+train$Pclass <- as.factor(train$Pclass)
+
+sapply(train, class)
+```
+
+```{r}
+# Build the random forest model uses pclass, sex, HasCabinNum, Deck and Fare_pp
+set.seed(1234) #for reproduction 
+RF_model1 <- randomForest(as.factor(Survived) ~ Sex + Pclass + HasCabinNum + Deck + Fare_pp, data=train, importance=TRUE)
+
+ RF_model1
+ 
+```
+
+```{r}
+# Make your prediction using the validate dataset
+RF_prediction1 <- predict(RF_model1, train)
+
+#check up
+conMat<- confusionMatrix(RF_prediction1, train$Survived)
+conMat$table
+
+# Misclassification error
+paste('Accuracy =', round(conMat$overall["Accuracy"],2))
+paste('Error =', round(mean(train$Survived != RF_prediction1), 2))
+
+# two attributes: PassengerId and Survived
+test$Pclass <- as.factor(test$Pclass)
+
+#RF_model1_accuracy <- c(80, 84, 76.555)
+```
+
+```{r}
+#make prediction
+RF_prediction <- predict(RF_model1, test)
+final <- data.frame(PassengerId = test$PassengerId, Survived = RF_prediction)
+```
+
+```{r}
+### RE_model2 with more predictors
+set.seed(2222)
+RF_model2 <- randomForest(as.factor(Survived) ~ Sex + Fare_pp + Pclass + Title + Age_group + Ticket_class  + Embarked,
+                          data = train,
+                          importance=TRUE)
+
+# RF_model2 Prediction
+RF_prediction2 <- predict(RF_model2, train)
+
+#check up
+conMat<- confusionMatrix(RF_prediction2, train$Survived)
+conMat$table
+
+# Misclassification error
+paste('Accuracy =', round(conMat$overall["Accuracy"],2))
+paste('Error =', round(mean(train$Survived != RF_prediction2), 2))
+
+test$Pclass <- as.factor(test$Pclass)
+
+# make prediction on test
+RF_prediction <- predict(RF_model2, test)
+final <- data.frame(PassengerId = test$PassengerId, Survived = RF_prediction)
+
+# Record RF_model2's results
+#RF_model2_accuracy <- c(83.16, 92, 78.95)
+```
+
+```{r}
+set.seed(2233)
+
+RF_model3 <- randomForest(Survived ~ Sex + Pclass + Age +
+                            SibSp + Parch + Embarked +
+                            HasCabinNum + Friend_size +
+                            Fare_pp + Title + Deck +
+                            Ticket_class + Age_group,
+    data = train, importance=TRUE)
+
+# Make a prediction on Train
+RF_prediction3 <- predict(RF_model3, train)
+
+#check up
+conMat<- confusionMatrix(RF_prediction3, train$Survived)
+conMat$table
+
+# Misclassification error
+paste('Accuracy =', round(conMat$overall["Accuracy"],2))
+paste('Error =', round(mean(train$Survived != RF_prediction3), 2)) 
+ 
+test$Pclass <- as.factor(test$Pclass)
+
+#make prediction
+RF_prediction <- predict(RF_model3, test)
+final <- data.frame(PassengerId = test$PassengerId, Survived = RF_prediction)
+```
+
+Cross Validation on Decision Tree
+```{r}
+#Factorize response variable
+RE_data$Survived <- factor(RE_data$Survived)
+
+#Separate Train and test data.
+train <- RE_data[1:891, ]
+test <- RE_data[892:1309, ]
+
+#setup model's train and valid dataset
+set.seed(1000)
+samp <- sample(nrow(train), 0.8 * nrow(train))
+trainData <- train[samp, ]
+validData <- train[-samp, ]
+```
+
+```{r}
+set.seed(3214)
+
+# specify parameters for cross validation
+control <- trainControl(method = "repeatedcv", 
+                        number = 10,
+                        repeats = 5, 
+                        search = "grid")
+```
+
+```{r}
+### CV on tree model2
+set.seed(1010)
+#Create model from cross validation train data
+Tree_model2_cv <- train(Survived ~ Sex + Pclass + HasCabinNum + Deck + Fare_pp,
+                        data = trainData,
+                        method = "rpart",
+                        trControl = control)
+print.train(Tree_model2_cv)
+```
+```{r}
+# CV model's estimated accuracy
+model_accuracy <- Tree_model2_cv$results$Accuracy[1]
+paste("Estimated accuracy:", format(model_accuracy, digits = 4))
+
+# Visualize cross validation tree
+rpart.plot(Tree_model2_cv$finalModel, extra=4)
+plot.train(Tree_model2_cv)
+```
+
+```{r}
+### Access accuracy on different datasets
+
+# prediction's Confusion Matrix on the trainData
+predict_train <-predict(Tree_model2_cv, trainData)
+conMat <- confusionMatrix(predict_train, trainData$Survived)
+conMat$table
+
+# prediction's Accuracy on the trainData
+predict_train_accuracy <- conMat$overall["Accuracy"]
+predict_train_accuracy
+```
+
+```{r}
+# prediction's Confusion Matrix on the validData
+predict_valid <-predict(Tree_model2_cv, validData)
+conMat <- confusionMatrix(predict_valid, validData$Survived)
+conMat$table
+
+# prediction's Accuracy on the validData
+predict_valid_accuracy <- conMat$overall["Accuracy"]
+predict_valid_accuracy
+```
+
+```{r}
+# predict on test
+predict_test <-predict(Tree_model2_cv, test)
+final <- data.frame(PassengerId = test$PassengerId, Survived = as.factor(predict_test))
+```
+
+```{r}
+# CV on model3
+set.seed(1234)
+Tree_model3_cv <- train(Survived ~ Sex + Fare_pp + Pclass + Title + Age_group + Ticket_class  + Embarked,
+                        data = trainData,
+                        method = "rpart",
+                        trControl = control)
+
+# show model details
+print.train(Tree_model3_cv)
+```
+
+```{r}
+# record accuracy
+model_accuracy <- format(Tree_model3_cv$results$Accuracy[1], digits = 4)
+paste("Estimated accuracy:", model_accuracy)
+
+#Visualize cross validation tree
+rpart.plot(Tree_model3_cv$finalModel, extra=4)
+plot.train(Tree_model3_cv)
+```
+
+```{r}
+### Access accuracy on different datasets
+# prediction's Confusion Matrix on the trainData 
+predict_train <-predict(Tree_model3_cv, trainData)
+conMat <- confusionMatrix(predict_train, trainData$Survived)
+conMat$table
+```
+
+```{r}
+# prediction's Accuracy on the trainData 
+predict_train_accuracy <- format(conMat$overall["Accuracy"], digits=4)
+paste("trainData Accuracy:", predict_train_accuracy)
+```
+
+```{r}
+# prediction's Confusion Matrix on the validData
+predict_valid <-predict(Tree_model3_cv, validData)
+conMat <- confusionMatrix(predict_valid, validData$Survived)
+conMat$table
+```
+
+```{r}
+# prediction's Accuracy on the validData 
+predict_valid_accuracy <- format(conMat$overall["Accuracy"], digits=4)
+paste("validData Accuracy:", predict_valid_accuracy)
+```
+
+```{r}
+#predict on test
+predict_test <-predict(Tree_model3_cv, test)
+final <- data.frame(PassengerId = test$PassengerId, Survived = as.factor(predict_test))
+```
+
+Cross Validation on Random Forest
+```{r}
+# set seed for reproduction
+set.seed(2307)
+RF_model1_cv <- train(Survived ~ Sex + Pclass + HasCabinNum + Deck + Fare_pp,
+                       data = trainData,
+                       method = "rf",
+                       trControl = control)
+
+# Show CV mdoel's details
+print(RF_model1_cv)
+```
+
+```{r}
+print(RF_model1_cv$results)
+```
+
+```{r}
+# Record model's accuracy
+model_accuracy <- format(RF_model1_cv$results$Accuracy[2], digits = 4)
+paste("Estimated accuracy:", model_accuracy)
+```
+
+```{r}
+# prediction's Confusion Matrix on the trainData 
+predict_train <-predict(RF_model1_cv, trainData)
+conMat <- confusionMatrix(predict_train, trainData$Survived)
+conMat$table
+```
+
+```{r}
+# prediction's Accuracy on the trainData 
+predict_train_accuracy <- format(conMat$overall["Accuracy"], digits=4)
+paste("trainData Accuracy:", predict_train_accuracy)
+```
+
+```{r}
+# prediction's Confusion Matrix on the validData
+predict_valid <-predict(RF_model1_cv, validData)
+conMat <- confusionMatrix(predict_valid, validData$Survived)
+conMat$table
+```
+
+```{r}
+# prediction's Accuracy on the validData 
+predict_valid_accuracy <- format(conMat$overall["Accuracy"], digits=4)
+paste("validData Accuracy:", predict_valid_accuracy)
+```
+
+```{r}
+# predict on test
+predict_test <-predict(RF_model1_cv, test)
+final_test_rf <- data.frame(PassengerId = test$PassengerId, Survived = as.factor(predict_test))
+```
+
+```{r}
+# set seed for reproduction
+set.seed(2300)
+
+RF_model2_cv <- train(Survived ~ Sex + Fare_pp + Pclass + Title + Age_group + Ticket_class + Embarked,
+                      data = trainData, 
+                      method = "rf", 
+                      trControl = control)
+
+print(RF_model2_cv)
+```
+
+```{r}
+print(RF_model2_cv$results)
+```
+
+```{r}
+# Record model's accuracy
+mode2_accuracy <- format(RF_model2_cv$results$Accuracy[2], digits = 4)
+paste("Estimated accuracy:", mode2_accuracy)
+```
+
+```{r}
+# prediction's Confusion Matrix on the trainData 
+predict_train <-predict(RF_model2_cv, trainData)
+conMat <- confusionMatrix(predict_train, trainData$Survived)
+conMat$table
+
+# prediction's Accuracy on the trainData 
+predict_train_accuracy <- format(conMat$overall["Accuracy"], digits=4)
+paste("trainData Accuracy:", predict_train_accuracy)
+```
+
+```{r}
+# prediction's Confusion Matrix on the validData
+predict_valid <-predict(RF_model2_cv, validData)
+conMat <- confusionMatrix(predict_valid, validData$Survived)
+conMat$table
+
+# prediction's Accuracy on the validData 
+predict_valid_accuracy <- format(conMat$overall["Accuracy"], digits=4)
+paste("validData Accuracy:", predict_valid_accuracy)
+```
+
+```{r}
+#predict on test
+predict_test <-predict(RF_model2_cv, test)
+final_test_rf_2 <- data.frame(PassengerId = test$PassengerId, Survived = as.factor(predict_test))
+```
+
